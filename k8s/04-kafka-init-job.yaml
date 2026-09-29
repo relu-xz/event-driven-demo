@@ -1,0 +1,23 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-init-topics
+  namespace: demo-eda
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: kafka-topic-creator
+          image: apache/kafka:3.8.0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Esperando al broker..."
+              until /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-service:9092 --list; do
+                sleep 2
+              done
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-service:9092 --create --if-not-exists --topic tx-received --partitions 3 --replication-factor 1
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-service:9092 --create --if-not-exists --topic tx-evaluated --partitions 3 --replication-factor 1
+              echo "Topicos creados exitosamente."

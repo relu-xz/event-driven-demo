@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eda-config
+  namespace: demo-eda
+data:
+  KAFKA_BOOTSTRAP_SERVERS: "kafka-service:9092"
+  TOPIC_TX_RECEIVED: "tx-received"
+  TOPIC_TX_EVALUATED: "tx-evaluated"

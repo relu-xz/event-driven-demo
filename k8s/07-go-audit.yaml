@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-worker
+  namespace: demo-eda
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: audit-worker
+  template:
+    metadata:
+      labels:
+        app: audit-worker
+    spec:
+      containers:
+        - name: audit-worker
+          image: event-driven-demo-audit-worker:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: eda-config
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: INPUT_TOPIC
+              valueFrom:
+                configMapKeyRef:
+                  name: eda-config
+                  key: TOPIC_TX_EVALUATED
+            - name: KAFKA_GROUP_ID
+              value: "k8s-audit-notification-group"
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

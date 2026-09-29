@@ -1,0 +1,43 @@
+# ==============================================================================
+# Etapa 1: Builder con GraalVM 25 y Maven 3.9.16
+# ==============================================================================
+FROM container-registry.oracle.com/graalvm/jdk:25 AS builder
+
+ARG MAVEN_VERSION=3.9.16
+ENV MAVEN_HOME=/opt/maven
+ENV PATH="${MAVEN_HOME}/bin:${PATH}"
+
+# Instalar utilitarios e instalar Maven 3.9.16
+RUN (microdnf install -y tar gzip findutils || dnf install -y tar gzip findutils || true) \
+    && mkdir -p /opt/maven \
+    && (curl -fsSL https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz -o /tmp/maven.tar.gz || \
+        curl -fsSL https://downloads.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz -o /tmp/maven.tar.gz) \
+    && tar -xzf /tmp/maven.tar.gz -C /opt/maven --strip-components=1 \
+    && rm -f /tmp/maven.tar.gz \
+    && mvn -version
+
+WORKDIR /build
+
+# 1. Resolver dependencias (capa de caché)
+COPY pom.xml .
+RUN mvn dependency:go-offline -B || true
+
+# 2. Compilar y empaquetar fast-jar de Quarkus
+COPY src ./src
+RUN mvn clean package -DskipTests
+
+# ==============================================================================
+# Etapa 2: Runtime con GraalVM 25
+# ==============================================================================
+FROM container-registry.oracle.com/graalvm/jdk:25
+WORKDIR /app
+
+COPY --from=builder /build/target/quarkus-app/lib/ /app/lib/
+COPY --from=builder /build/target/quarkus-app/*.jar /app/
+COPY --from=builder /build/target/quarkus-app/app/ /app/app/
+COPY --from=builder /build/target/quarkus-app/quarkus/ /app/quarkus/
+
+EXPOSE 8080
+
+ENV JAVA_OPTS="-Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager"
+CMD ["sh", "-c", "java $JAVA_OPTS -jar /app/quarkus-run.jar"]

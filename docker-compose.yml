@@ -1,0 +1,132 @@
+services:
+  # ============================================================================
+  # 1. Apache Kafka 3.8 en modo KRaft (Sin ZooKeeper)
+  # ============================================================================
+  kafka:
+    image: apache/kafka:3.8.0
+    container_name: kafka
+    ports:
+      - "9092:9092"   # Acceso desde tu máquina local (host)
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    networks:
+      - demo-net
+
+  # ============================================================================
+  # 2. Inicializador de Tópicos (Evita carreras al iniciar los servicios)
+  # ============================================================================
+  kafka-init:
+    image: apache/kafka:3.8.0
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - demo-net
+    entrypoint: [ "/bin/sh", "-c" ]
+    command: |
+      "
+      echo 'Creando topicos de negocio...'
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic tx-received --partitions 3 --replication-factor 1
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic tx-evaluated --partitions 3 --replication-factor 1
+      echo 'Topicos listos para el taller.'
+      "
+
+  # ============================================================================
+  # 3. Interfaz Gráfica Web para la Demostración (Kafka UI)
+  # ============================================================================
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8085:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local-kraft-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - demo-net
+
+  # ============================================================================
+  # 4. Frente 1: Quarkus Core API (Java 21)
+  # ============================================================================
+  transaction-service:
+    build:
+      context: ./transaction-service
+      dockerfile: Dockerfile.jvm
+    container_name: transaction-service
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - demo-net
+
+  # ============================================================================
+  # 5. Frente 2: Python Fraud Detection Engine
+  # ============================================================================
+  fraud-detector:
+    build:
+      context: ./fraud-detector
+      dockerfile: Dockerfile
+    container_name: fraud-detector
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      INPUT_TOPIC: tx-received
+      OUTPUT_TOPIC: tx-evaluated
+      KAFKA_GROUP_ID: fraud-detection-service
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - demo-net
+
+  # ============================================================================
+  # 6. Frente 2: Go Audit & Notification Worker
+  # ============================================================================
+  audit-worker:
+    build:
+      context: ./audit-worker
+      dockerfile: Dockerfile
+    container_name: audit-worker
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      INPUT_TOPIC: tx-evaluated
+      KAFKA_GROUP_ID: audit-notification-group
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - demo-net
+
+networks:
+  demo-net:
+    driver: bridge

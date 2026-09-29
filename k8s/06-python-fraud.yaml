@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-detector
+  namespace: demo-eda
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fraud-detector
+  template:
+    metadata:
+      labels:
+        app: fraud-detector
+    spec:
+      containers:
+        - name: fraud-detector
+          image: event-driven-demo-fraud-detector:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: eda-config
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: INPUT_TOPIC
+              valueFrom:
+                configMapKeyRef:
+                  name: eda-config
+                  key: TOPIC_TX_RECEIVED
+            - name: OUTPUT_TOPIC
+              valueFrom:
+                configMapKeyRef:
+                  name: eda-config
+                  key: TOPIC_TX_EVALUATED
+            - name: KAFKA_GROUP_ID
+              value: "k8s-fraud-detection-service"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
